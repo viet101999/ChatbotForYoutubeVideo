@@ -26,10 +26,8 @@ class ChatBot:
         self.GOOGLE_API_KEY = ""
         genai.configure(api_key=self.GOOGLE_API_KEY)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
-        # self.transcription_model = whisper.load_model("base")  # Whisper model for transcription
-        # self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Text embedding model
-        self.transcription_model = ""
-        self.embedding_model = ""
+        self.transcription_model = whisper.load_model("base")  # Whisper model for transcription
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Text embedding model
 
         # FAISS index for semantic search
         self.dimension = 384  # Embedding dimension for the MiniLM model
