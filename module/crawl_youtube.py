@@ -1,12 +1,13 @@
-import yt_dlp
 import os
 import re
+
+import yt_dlp
 
 
 def download_video(link, save_folder):
     """Download YouTube video and return its path."""
     ydl_opts = {
-        "outtmpl": os.path.join(save_folder, '%(title)s.%(ext)s'), 
+        "outtmpl": os.path.join(save_folder, '%(title)s.%(ext)s'),
         "format": "best",
         'noplaylist': True,  # Ensure it's just one video (not a playlist)
         'quiet': True  # Reduce output from yt-dlp
@@ -26,6 +27,7 @@ def download_video(link, save_folder):
         os.rename(original_path, cleaned_path)
 
     return cleaned_path
+
 
 def download_and_convert_video(link, save_folder):
     # Define the output directory and ensure it exists
@@ -59,7 +61,7 @@ def download_and_convert_video(link, save_folder):
         # ydl_opts['outtmpl'] = os.path.join(save_folder, f'{video_title}.%(ext)s')
         # with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         #     ydl.download([link])
-            
+
     # Replace spaces with underscores in the file name
     sanitized_title = re.sub(r'[^a-zA-Z0-9]', '', video_title).lower()
     video_extension = "wav"  # Default extension to mp4 if not available
@@ -74,9 +76,10 @@ def download_and_convert_video(link, save_folder):
     # # Return the full path to the .wav file
     # return os.path.join(save_folder, f'{video_title}.wav')
 
+
 def get_video_title(link):
     # Create the yt-dlp options
-    ydl_opts = { 
+    ydl_opts = {
         "format": "best",
         'noplaylist': True,  # Ensure it's just one video (not a playlist)
         'quiet': True  # Reduce output from yt-dlp
@@ -87,8 +90,9 @@ def get_video_title(link):
         # Extract the video information first to get the title
         info_dict = ydl.extract_info(link, download=False)
         video_title = info_dict.get('title', 'downloaded_video')
-    
+
     return video_title
+
 
 if __name__ == "__main__":
     output_file_path = get_video_title("https://www.youtube.com/watch?v=9RhWXPcKBI8")

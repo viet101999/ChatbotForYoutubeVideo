@@ -1,23 +1,26 @@
-from fastapi import FastAPI, UploadFile
-import whisper
 import os
-from sentence_transformers import SentenceTransformer
-import faiss
-import subprocess
-from typing import List
-import numpy as np
-import google.generativeai as genai
-from pathlib import Path
-import PIL.Image
-import time
 import re
+import subprocess
+import shutil
+import time
 from io import BytesIO
+from pathlib import Path
+from typing import List
 
-from crawl_youtube import (
-    download_video, 
-    download_and_convert_video, 
+import PIL.Image
+import faiss
+import google.generativeai as genai
+import numpy as np
+import whisper
+from fastapi import FastAPI, UploadFile
+from sentence_transformers import SentenceTransformer
+
+from module.crawl_youtube import (
+    download_video,
+    download_and_convert_video,
     get_video_title
 )
+
 
 # Define the ChatBot class
 class ChatBot:
@@ -34,7 +37,7 @@ class ChatBot:
         self.index = faiss.IndexFlatL2(self.dimension)
 
         self.save_folder = "downloads"
-        
+
         # Store metadata
         self.video_metadata = []
 
@@ -43,34 +46,47 @@ class ChatBot:
         self.current_video_title = ""
         self.current_video_path = ""
         self.current_video_file = ""
-        
+
         # API Endpoints
         self.define_routes()  # Define API endpoints
 
     def define_routes(self):
         @self.app.post("/upload/")
         async def upload_video(file: UploadFile):
-            video_path = f"./{file.filename}"
+            file_path = f"./{file.filename}"
 
-            video_title = Path(video_path).stem
+            video_title = Path(file_path).stem
+            self.video_title = video_title
+            cleaned_video_title = re.sub(r'[^a-zA-Z0-9]', '', video_title).lower()
+
+            video_path = os.path.join("downloads", f"{cleaned_video_title}.mp4")
+            audio_path = os.path.join("downloads", f"{cleaned_video_title}.wav")
+            transcript_path = os.path.join("downloads", f"{cleaned_video_title}.txt")
+
+            if not os.path.exists(video_path):
+                shutil.copy(file_path, video_path) 
+
+            if not os.path.exists(audio_path):
+                shutil.copy(file_path, audio_path)
+
             transcript_path = os.path.join("downloads", f"{video_title}.txt")
             if os.path.exists(transcript_path):
                 self.load_transcript(transcript_path)
-
             else:
-                audio_path = os.path.join("downloads", f"{video_title}.wav")
-
-                # Save uploaded video
-                with open(video_path, "wb") as video_file:
-                    video_file.write(file.file.read())
-
-                # Extract audio and transcribe
-                self.extract_audio(video_path, audio_path)
                 transcripts = self.transcribe_audio(audio_path)
                 self.write_transcript(transcript_path, transcripts)
-                
-                # Build FAISS index
-                self.build_index(transcripts)
+
+            # Build FAISS index
+            self.build_index()
+
+            if self.is_video_exist(video_name=cleaned_video_title):
+                pass
+            else:
+                self.upload_video(video_path)
+            
+            self.current_video_title = cleaned_video_title
+            self.current_video_path = video_path
+            self.current_video_file = genai.get_file(f"files/{cleaned_video_title}")
 
             return {"name": video_title}
 
@@ -89,31 +105,31 @@ class ChatBot:
             video_path = os.path.join("downloads", f"{cleaned_video_title}.mp4")
             audio_path = os.path.join("downloads", f"{cleaned_video_title}.wav")
             transcript_path = os.path.join("downloads", f"{cleaned_video_title}.txt")
-            
+
             if not os.path.exists(video_path):
                 video_path = download_video(link, self.save_folder)
-                
+
             if not os.path.exists(audio_path):
                 audio_path = download_and_convert_video(link, self.save_folder)
-                    
+
             if os.path.exists(transcript_path):
                 self.load_transcript(transcript_path)
-            else:   
+            else:
                 transcripts = self.transcribe_audio(audio_path)
                 self.write_transcript(transcript_path, transcripts)
 
-                # Build FAISS index
-                self.build_index(transcripts)
+            # Build FAISS index
+            self.build_index()
 
             if self.is_video_exist(video_name=cleaned_video_title):
                 pass
             else:
                 self.upload_video(video_path)
-            
+
             self.current_video_title = cleaned_video_title
             self.current_video_path = video_path
             self.current_video_file = genai.get_file(f"files/{cleaned_video_title}")
-            
+
             return {"name": video_title}
 
         @self.app.get("/query_chatbot_search/")
@@ -137,19 +153,19 @@ class ChatBot:
             )
             result = response.text
             return result
-        
+
         @self.app.get("/query_chatbot_image/")
         async def query_chatbot_image(question: str, image_file: UploadFile):
             if self.is_video_exist(video_name=self.current_video_title):
                 video_file = self.current_video_file
             else:
                 video_file = self.upload_video(self.current_video_path)
-            
+
             # Read the uploaded file as bytes
             image_data = await image_file.read()
             # Use BytesIO to create a file-like object for PIL
             image = PIL.Image.open(BytesIO(image_data))
-    
+
             prompt = """
             Watch each frame in the video carefully and answer the user's question as accurately and concisely as possible.
             Only base your answers strictly on what information is available in the video attached.
@@ -157,7 +173,7 @@ class ChatBot:
 
             Questions: {query}
             """
-            
+
             prompt = prompt.replace("{query}", question)
             response = self.model.generate_content(
                 [
@@ -179,19 +195,19 @@ class ChatBot:
         result = self.transcription_model.transcribe(audio_path)
         return result['segments']  # Transcripts with timestamps
 
-    def build_index(self, transcripts: List[dict]):
+    def build_index(self):
         embeddings = []
-        metadata = []
-        for segment in transcripts:
+        # metadata = []
+        for segment in self.video_metadata:
             text = segment['text']
             embedding = self.embedding_model.encode(text)
             embeddings.append(embedding)
-            metadata.append(segment)
+            # metadata.append(segment)
 
         faiss_embeddings = np.array(embeddings, dtype=np.float32)
         self.index.add(faiss_embeddings)
-        self.video_metadata.extend(metadata)
-                
+        # self.video_metadata.extend(metadata)
+
     def write_transcript(self, transcript_path: str, transcript: list):
         with open(transcript_path, 'w') as w:
             for segment in transcript:
@@ -218,10 +234,10 @@ class ChatBot:
     def upload_video(self, video_path: str):
         # Upload the video
         name_video = Path(video_path).stem
-        
+
         print(f"Uploading file...")
         video_file = genai.upload_file(
-            path=video_path, 
+            path=video_path,
             name=f"files/{name_video}",
             display_name=name_video
         )
@@ -237,9 +253,9 @@ class ChatBot:
             raise ValueError(video_file.state.name)
 
         return video_file
-    
+
     def is_video_exist(self, video_name: str):
-        name=f"files/{video_name}"
+        name = f"files/{video_name}"
         list_file = []
         for f in genai.list_files():
             list_file.append(f.name)
@@ -248,7 +264,7 @@ class ChatBot:
             return True
         else:
             return False
-    
+
     def answer_query(self, query: str):
         query_embedding = self.embedding_model.encode([query])
         distances, indices = self.index.search(np.array(query_embedding, dtype=np.float32), 1)
